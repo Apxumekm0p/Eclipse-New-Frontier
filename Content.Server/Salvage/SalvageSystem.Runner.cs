@@ -17,6 +17,7 @@ using Robust.Shared.Map.Components;
 using Robust.Shared.Player;
 using Robust.Shared.Utility;
 using Content.Shared.Coordinates;
+using Content.Server.Salvage;
 
 namespace Content.Server.Salvage;
 
@@ -172,9 +173,21 @@ public sealed partial class SalvageSystem
             var remaining = comp.EndTime - _timing.CurTime;
             var audioLength = _audio.GetAudioLength(comp.SelectedSong.Path.ToString());
 
-            if (comp.Stage < ExpeditionStage.FinalCountdown && remaining < TimeSpan.FromSeconds(45))
+            if (comp.Stage < ExpeditionStage.FinalCountdown && remaining < TimeSpan.FromSeconds(10))
             {
                 comp.Stage = ExpeditionStage.FinalCountdown;
+
+                var mobQuery = EntityQueryEnumerator<HumanoidAppearanceComponent>();
+                var ev = new ExpeditionNearEndEvent();
+                while (mobQuery.MoveNext(out var mobUid, out var _))
+                {
+                    RaiseLocalEvent(mobUid, ref ev);
+                }
+
+            }
+            else if (comp.Stage < ExpeditionStage.EmergencyReturnCountdown && remaining < TimeSpan.FromSeconds(45))
+            {
+                comp.Stage = ExpeditionStage.EmergencyReturnCountdown;
                 Dirty(uid, comp);
                 Announce(uid, Loc.GetString("salvage-expedition-announcement-countdown-seconds", ("duration", TimeSpan.FromSeconds(45).Seconds)));
             }

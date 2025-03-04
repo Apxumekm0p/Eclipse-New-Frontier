@@ -1,0 +1,7 @@
+- type: entity
+  id: EmergencyReturnImplanter
+  suffix: emergency return
+  parent: BaseImplantOnlyImplanterSyndi
+  components:
+    - type: Implanter
+      implant: EmergencyReturnImplant

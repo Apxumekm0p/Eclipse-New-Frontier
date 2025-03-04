@@ -35,6 +35,13 @@ using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Content.Shared.Body.Components; // Frontier: Gib organs
 using Content.Shared.Projectiles; // Frontier: embed triggers
+using Content.Server.Salvage;
+using Content.Shared._NF.Shipyard.Components;
+using Robust.Shared.Map.Components;
+using Content.Server.Atmos.EntitySystems;
+using Robust.Shared.Physics.Components;
+using Robust.Shared.Physics;
+using Content.Shared.Physics; // Eclipse: expedition triggers
 
 namespace Content.Server.Explosion.EntitySystems
 {
@@ -79,6 +86,7 @@ namespace Content.Server.Explosion.EntitySystems
         [Dependency] private readonly InventorySystem _inventory = default!;
         [Dependency] private readonly ElectrocutionSystem _electrocution = default!;
         [Dependency] private readonly StationSystem _station = default!; // Frontier: medical insurance
+        [Dependency] private readonly AtmosphereSystem _atmosphere = default!; // Eclipse
 
         public override void Initialize()
         {
@@ -101,6 +109,7 @@ namespace Content.Server.Explosion.EntitySystems
             SubscribeLocalEvent<TriggerWhenEmptyComponent, OnEmptyGunShotEvent>(OnEmptyTriggered);
             SubscribeLocalEvent<RepeatingTriggerComponent, MapInitEvent>(OnRepeatInit);
             SubscribeLocalEvent<TriggerOnProjectileHitComponent, ProjectileHitEvent>(OnProjectileHitEvent); // Frontier: trigger on embed
+            SubscribeLocalEvent<TriggerOnExpeditionNearEndComponent, ExpeditionNearEndEvent>(OnExpeditionNearEndEvent); // Eclipse
 
             SubscribeLocalEvent<SpawnOnTriggerComponent, TriggerEvent>(OnSpawnTrigger);
             SubscribeLocalEvent<DeleteOnTriggerComponent, TriggerEvent>(HandleDeleteTrigger);
@@ -112,6 +121,7 @@ namespace Content.Server.Explosion.EntitySystems
             SubscribeLocalEvent<SoundOnTriggerComponent, TriggerEvent>(OnSoundTrigger);
             SubscribeLocalEvent<ShockOnTriggerComponent, TriggerEvent>(HandleShockTrigger);
             SubscribeLocalEvent<RattleComponent, TriggerEvent>(HandleRattleTrigger);
+            SubscribeLocalEvent<TransportToShuttleOnTriggerComponent, TriggerEvent>(HandleTransportToShuttleTrigger);
         }
 
         private void OnSoundTrigger(EntityUid uid, SoundOnTriggerComponent component, TriggerEvent args)
@@ -278,6 +288,79 @@ namespace Content.Server.Explosion.EntitySystems
         }
         // End Frontier
 
+        // Start-Eclipse
+        private void HandleTransportToShuttleTrigger(EntityUid uid, TransportToShuttleOnTriggerComponent component, TriggerEvent args)
+        {
+            if (!TryComp<SubdermalImplantComponent>(uid, out var implanted))
+                return;
+
+            if (implanted.ImplantedEntity == null)
+                return;
+
+            if (!TryComp<ShuttleDeedComponent>(uid, out var shuttleDeed))
+                return;
+
+            if (shuttleDeed.ShuttleUid == null)
+                return;
+
+            var grid = shuttleDeed.ShuttleUid.Value;
+
+            if (!TryComp<MapGridComponent>(grid, out var gridComp))
+                return;
+
+            var xform = Transform(grid);
+
+            var targetCoords = xform.Coordinates;
+            var gridBounds = gridComp.LocalAABB.Scale(0.6f);
+
+            for (var i = 0; i < 25; i++)
+            {
+                var randomX = _random.Next((int) gridBounds.Left, (int) gridBounds.Right);
+                var randomY = _random.Next((int) gridBounds.Bottom, (int) gridBounds.Top);
+
+                var tile = new Vector2i(randomX, randomY);
+
+                // no air-blocked areas.
+                if (_atmosphere.IsTileSpace(grid, xform.MapUid, tile) ||
+                    _atmosphere.IsTileAirBlocked(grid, tile, mapGridComp: gridComp))
+                {
+                    continue;
+                }
+
+                // don't spawn inside of solid objects
+                var physQuery = GetEntityQuery<PhysicsComponent>();
+                var valid = true;
+                foreach (var ent in gridComp.GetAnchoredEntities(tile))
+                {
+                    if (!physQuery.TryGetComponent(ent, out var body))
+                        continue;
+                    if (body.BodyType != BodyType.Static ||
+                        !body.Hard ||
+                        (body.CollisionLayer & (int) CollisionGroup.Impassable) == 0)
+                        continue;
+
+                    valid = false;
+                    break;
+                }
+                if (!valid)
+                    continue;
+
+                if (!_atmosphere.IsTileMixtureProbablySafe(grid, grid, tile))
+                {
+                    continue;
+                }
+
+                targetCoords = gridComp.GridTileToLocal(tile);
+                break;
+            }
+
+            _transformSystem.SetLocalPosition(implanted.ImplantedEntity.Value, targetCoords.Position, xform);
+            Spawn(component.FlashPrototype, targetCoords);
+
+            args.Handled = true;
+        }
+        // End-Eclipse
+
         private void OnTriggerCollide(EntityUid uid, TriggerOnCollideComponent component, ref StartCollideEvent args)
         {
             if (args.OurFixtureId == component.FixtureID && (!component.IgnoreOtherNonHard || args.OtherFixture.Hard))
@@ -324,6 +407,11 @@ namespace Content.Server.Explosion.EntitySystems
             Trigger(uid, args.Target);
         }
         // End Frontier
+
+        private void OnExpeditionNearEndEvent(EntityUid uid, TriggerOnExpeditionNearEndComponent component, ref ExpeditionNearEndEvent args)
+        {
+            Trigger(uid);
+        }
 
         private void OnRepeatInit(Entity<RepeatingTriggerComponent> ent, ref MapInitEvent args)
         {
