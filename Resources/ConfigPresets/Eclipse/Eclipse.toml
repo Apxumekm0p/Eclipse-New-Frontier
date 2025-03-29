@@ -25,10 +25,6 @@ time = 60
 [atmos]
 space_wind = true
 
-[viewport]
-minimum_width = 15
-maximum_width = 26
-
 [ic]
 flavor_text = true
 punctuation = true
@@ -61,7 +57,6 @@ boosty = "https://boosty.to/project_eclipse"
 publictransit.wait_time = 60.0
 respawn.time = 300.0
 uncryo.maxtime = 86400.0
-salvage.expedition_rewards_enabled = true
 
 [eclipse]
 restart_when_server_empty = false
